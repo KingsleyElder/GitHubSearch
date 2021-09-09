@@ -1,0 +1,38 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: alpine
+    tag: "latest"
+
+inputs:
+- name: git-repo
+- name: version
+
+outputs:
+- name: git-repo
+- name: version
+
+run:
+  path: sh
+  args:
+  - -exc
+  - |
+    cp ${PWD}/version/number ${PWD}/version/docker
+    
+    # Docker tags can't use '+' in tags, making full semver impossible. Replace with '_'
+    if grep -q + ${PWD}/version/number; then
+      echo "Fix Semver for docker tags"
+      sed -i -e "s/+/\_/g" ${PWD}/version/docker
+    fi
+
+    # Replace placeholders in Chart and Version yaml files
+    semver="$(cat ${PWD}/version/number)"
+
+    docker_semver="$(cat ${PWD}/version/docker)"
+
+    echo "Add current Semver to Chart.yaml and values.yaml"
+    sed -i -e "s/\[semver\]/${semver}/g" ${PWD}/git-repo/ci/helm/Chart.yaml
+    sed -i -e "s/\[semver\]/${docker_semver}/g" ${PWD}/git-repo/ci/helm/values.yaml

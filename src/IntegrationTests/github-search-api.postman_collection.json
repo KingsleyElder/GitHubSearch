@@ -1,0 +1,259 @@
+{
+	"info": {
+		"_postman_id": "11af3a59-60c7-4c93-be8e-9c9ae7427cff",
+		"name": "github-search-api",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "GitHub Checks",
+			"item": [
+				{
+					"name": "Get APi Default",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/vnd.github.preview",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "https://api.github.com",
+							"protocol": "https",
+							"host": [
+								"api",
+								"github",
+								"com"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get user - KingsleyElder",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/vnd.github.preview",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "https://api.github.com/users/KingsleyElder",
+							"protocol": "https",
+							"host": [
+								"api",
+								"github",
+								"com"
+							],
+							"path": [
+								"users",
+								"KingsleyElder"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Repo Search - Find top 5 starred repos for C#",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {\r",
+									"    pm.response.to.have.status(200);\r",
+									"});\r",
+									"\r",
+									"pm.test(\"Five records were returned\", function () {\r",
+									"    var jsonData = pm.response.json();\r",
+									"    pm.expect(jsonData.items.length).to.eql(5);\r",
+									"});\r",
+									"\r",
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/vnd.github.preview",
+								"type": "text"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{github_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "https://api.github.com/search/repositories?q=language:C%23&page=1&per_page=5&sort=stargazers_count&order=desc",
+							"protocol": "https",
+							"host": [
+								"api",
+								"github",
+								"com"
+							],
+							"path": [
+								"search",
+								"repositories"
+							],
+							"query": [
+								{
+									"key": "q",
+									"value": "language:C%23"
+								},
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "per_page",
+									"value": "5"
+								},
+								{
+									"key": "sort",
+									"value": "stargazers_count"
+								},
+								{
+									"key": "order",
+									"value": "desc"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Get Top Repos",
+			"item": [
+				{
+					"name": "200 OK - Five records returned",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {\r",
+									"    pm.response.to.have.status(200);\r",
+									"});\r",
+									"pm.test(\"Five records returned\", function () {\r",
+									"    var jsonData = pm.response.json();\r",
+									"    pm.expect(jsonData.length).to.eql(5);\r",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{AppUrl}}/TopRepos",
+							"host": [
+								"{{AppUrl}}"
+							],
+							"path": [
+								"TopRepos"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "404 Not Found - Calling non-existent endpoint",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 404\", function () {\r",
+									"    pm.response.to.have.status(404);\r",
+									"});\r",
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{AppUrl}}/BestSoup",
+							"host": [
+								"{{AppUrl}}"
+							],
+							"path": [
+								"BestSoup"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "405 Method Not Allowed - POST not supported",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 405\", function () {\r",
+									"    pm.response.to.have.status(405);\r",
+									"});\r",
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{AppUrl}}/TopRepos",
+							"host": [
+								"{{AppUrl}}"
+							],
+							"path": [
+								"TopRepos"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	]
+}

@@ -1,0 +1,242 @@
+resource_types:
+  - name: semver
+    type: docker-image
+    source:
+      repository: ((pro-get-uri))/docker/library/bash-semver-resource
+      tag: latest
+      username: ((proget-user))
+      password: ((proget-password))
+  - name: cf-cli-resource
+    type: docker-image
+    source:
+      repository: ((pro-get-uri))/docker/nulldriver/cf-cli-resource
+      tag: 2.18.1
+      username: ((proget-user))
+      password: ((proget-password))
+  - name: teams-notification
+    type: docker-image
+    source:
+      repository: ((pro-get-uri))/docker/bmsoft/teams-notification-resource
+      tag: latest
+      username: ((proget-user))
+      password: ((proget-password))
+  - name: s3-sync
+    type: docker-image
+    source:
+      repository: ((pro-get-uri))/docker/18fgsa/s3-resource-simple
+      tag: latest
+      username: ((proget-user))
+      password: ((proget-password))
+
+resources:
+  - name: version
+    type: semver
+    source:
+      repo_url: ((repo-uri))
+      private_key: ((bitbucket.ssh_key))
+      branch: ((repo-branch))
+  - name: cf-stage
+    type: cf-cli-resource
+    source:
+      api: ((pcf-stage-environment.api))
+      org: ((pcf-stage-environment.organization))
+      space: ((pcf-stage-environment.space))
+      skip_cert_check: false
+      username: ((cf-preprd-username))
+      password: ((cf-preprd-password))
+  - name: teams-alert
+    type: teams-notification
+    source:
+      url: ((teams-channels.octane-url))
+
+jobs:
+  - name: create-mysql-stage
+    plan:
+    - put: cf-create-service
+      resource: cf-stage
+      params:
+        commands:
+        - command: create-service
+          space: ((pcf-stage-environment.space))
+          service: sol-mysql-dev
+          plan: sol-mysql-dev-small
+          service_instance: rewards-profile-mysql
+        - command: create-service-key
+          space: ((pcf-stage-environment.space))
+          service_instance: rewards-profile-mysql
+          service_key: rewards-profile-mysql-key
+  - name: check-version
+    plan:
+      - get: version
+      - task: display-version
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: ((pro-get-uri))/docker/library/busybox
+              tag: latest
+              username: ((proget-user))
+              password: ((proget-password))
+          inputs:
+            - name: version
+          run:
+            path: cat
+            args: [version/number]
+
+  - name: deploy-to-stage
+    plan:
+      - get: version
+        trigger: false
+      - task: create-deploy-params
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: ((pro-get-uri))/docker/library/busybox
+              tag: latest
+              username: ((proget-user))
+              password: ((proget-password))
+          inputs:
+            - name: version
+          run:
+            path: sh
+            args: 
+              - -exc
+              - |- 
+                cat version/docker | xargs -I {} -n 1 echo 'docker_image: ((pro-get-uri))/docker/smr/identifix/solera-rewards/((app-name)):{}' > cf_command/params.yml 
+                cat >> cf_command/params.yml <<EOF
+                command: push
+                app_name: ((app-name))-stage-green
+                instances: 1
+                memory: ((app-mem))
+                docker_username: ((proget-user))
+                docker_password: "$(echo '((proget-password))')"
+                services: [ ((rewards-mq.service_name)) ]
+                environment_variables:
+                  ASPNETCORE_ENVIRONMENT: Stage
+                  ConnectionStrings__GitHub: ((github-search-api-stage.github-config)) 
+                EOF
+          outputs:
+            - name: cf_command
+      - put: run-container-image
+        inputs:
+          - cf_command
+        resource: cf-stage
+        params:
+          command: push
+          command_file: cf_command/params.yml
+      - put: cf-bind-service
+        resource: cf-stage
+        params:
+          commands:
+            - command: bind-service
+              app_name: ((app-name))-stage-green
+              service_instance: rewards-profile-mysql
+              space: ((pcf-stage-environment.space))
+            - command: bind-service
+              app_name: ((app-name))-stage-green
+              service_instance: ((rewards-mq.service_name))
+              space: ((pcf-stage-environment.space))
+    on_success:
+      put: teams-alert
+      params:
+        textFile: version/number
+        text: |
+          Successfully deployed $TEXT_FILE_CONTENT to PCF-((pcf-stage-environment.space)) with no errors
+        title: $BUILD_PIPELINE_NAME
+        color: 00FF00
+        actionName: ($BUILD_JOB_NAME - $BUILD_NAME)
+        actionTarget: $ATC_EXTERNAL_URL/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME
+    on_failure:
+      put: teams-alert 
+      params:
+        textFile: version/number
+        text: |
+          Failed to deploy $TEXT_FILE_CONTENT to PCF-((pcf-stage-environment.space))
+        title: $BUILD_PIPELINE_NAME
+        color: FF0000
+        actionName: ($BUILD_JOB_NAME - $BUILD_NAME)
+        actionTarget: $ATC_EXTERNAL_URL/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME
+
+  - name: blue-green-switch-stage
+    plan:
+      - get: version
+        trigger: true
+        passed: [deploy-to-stage]
+      - task: blue-green-deploy
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: ((pro-get-uri))/docker/library/ubuntu
+              tag: latest
+              username: ((proget-user))
+              password: ((proget-password))
+          inputs:
+            - name: version
+          run:
+            path: sh
+            args: 
+              - -exc
+              - |-
+                apt-get update
+                apt-get install wget -y
+                apt-get install gnupg2 -y
+
+                wget -q -O - https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | apt-key add -
+                echo "deb https://packages.cloudfoundry.org/debian stable main" | tee /etc/apt/sources.list.d/cloudfoundry-cli.list
+                apt-get update
+                apt-get install cf-cli
+                cf install-plugin -r CF-Community "blue-green-deploy" -f
+                cf_app_name=((app-name))-stage
+                cf_app_name_green=$cf_app_name-green
+
+                cf login -a ((pcf-stage-environment.api)) -u ((cf-preprd-username)) -p "((cf-preprd-password))" -o ((pcf-stage-environment.organization)) -s ((pcf-stage-environment.space))
+
+                greenApps=$(cf apps | grep $cf_app_name_green | { grep -v grep || true; })
+                if [ -z "$greenApps" ]; then
+                  exit 0;
+                fi
+                
+                cf map-route $cf_app_name_green ((pcf-stage-environment.app_domain)) --hostname $cf_app_name
+                cf unmap-route $cf_app_name_green ((pcf-stage-environment.app_domain)) --hostname $cf_app_name_green
+                cf delete-route ((pcf-stage-environment.app_domain)) --hostname $cf_app_name_green -f
+
+                currentApps=$(cf apps | grep "$cf_app_name " | { grep -v grep || true; })
+                if [ ! -z "$currentApps" ]; then
+                  cf unmap-route $cf_app_name ((pcf-stage-environment.app_domain)) --hostname $cf_app_name
+                  cf stop $cf_app_name
+                  cf delete $cf_app_name -f
+                fi
+                
+                cf rename $cf_app_name_green $cf_app_name
+    on_success:
+      put: teams-alert
+      params:
+        textFile: version/number
+        text: |
+          Successfully updated route for new app $TEXT_FILE_CONTENT in PCF-((pcf-stage-environment.space)) with no errors
+        title: $BUILD_PIPELINE_NAME
+        color: 00FF00
+        actionName: ($BUILD_JOB_NAME - $BUILD_NAME)
+        actionTarget: $ATC_EXTERNAL_URL/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME
+    on_failure:
+      put: teams-alert 
+      params:
+        textFile: version/number
+        text: |
+          Failed to update route for $TEXT_FILE_CONTENT in PCF-((pcf-stage-environment.space))
+        title: $BUILD_PIPELINE_NAME
+        color: FF0000
+        actionName: ($BUILD_JOB_NAME - $BUILD_NAME)
+        actionTarget: $ATC_EXTERNAL_URL/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME
+
+groups:
+- name: main
+  jobs:
+  - check-version
+  - deploy-to-stage
+  - blue-green-switch-stage

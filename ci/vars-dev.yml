@@ -1,0 +1,6 @@
+# fly -t pcfdev set-pipeline --pipeline github-search-api-dev --config pipeline-dev.yml --load-vars-from vars-dev.yml
+app-name: github-search-api
+repo-uri: git@bitbucket.org:SoleraNA/github-search-api.git
+repo-branch: develop
+pro-get-uri: feeds.axadmin.net
+app-mem: 256M

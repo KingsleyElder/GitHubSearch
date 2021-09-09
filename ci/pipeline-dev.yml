@@ -1,0 +1,317 @@
+resource_types:
+  - name: semver
+    type: docker-image
+    source:
+      repository: ((pro-get-uri))/docker/library/bash-semver-resource
+      tag: latest
+      username: ((proget-user))
+      password: ((proget-password))
+  - name: cf-cli-resource
+    type: docker-image
+    source:
+      repository: ((pro-get-uri))/docker/nulldriver/cf-cli-resource
+      tag: 2.18.1
+      username: ((proget-user))
+      password: ((proget-password))
+  - name: teams-notification
+    type: docker-image
+    source:
+      repository: ((pro-get-uri))/docker/bmsoft/teams-notification-resource
+      tag: latest
+      username: ((proget-user))
+      password: ((proget-password))
+  - name: s3-sync
+    type: docker-image
+    source:
+      repository: ((pro-get-uri))/docker/18fgsa/s3-resource-simple
+      tag: latest
+      username: ((proget-user))
+      password: ((proget-password))
+
+resources:
+  - name: version
+    type: semver
+    source:
+      repo_url: ((repo-uri))
+      private_key: ((bitbucket.ssh_key))
+      branch: ((repo-branch))
+  - name: cf-dev
+    type: cf-cli-resource
+    source:
+      api: ((pcf-dev-environment.api))
+      org: ((pcf-dev-environment.organization))
+      space: ((pcf-dev-environment.space))
+      skip_cert_check: false
+      username: ((cf-preprd-username))
+      password: ((cf-preprd-password))
+  - name: app-repo
+    type: git
+    source:
+      uri: ((repo-uri))
+      branch: ((repo-branch))
+      private_key: ((bitbucket.ssh_key))
+  - name: app-docker-image
+    type: docker-image
+    source:
+      repository: ((pro-get-uri))/docker/smr/identifix/((app-name))
+      username: ((proget-user))
+      password: ((proget-password))
+  - name: teams-alert
+    type: teams-notification
+    source:
+      url: ((teams-channels.octane-url))
+  - name: reports
+    type: s3-sync
+    source:
+      bucket: ((s3-connection.bucket))
+      path: ((pcf-dev-environment.organization))/((pcf-dev-environment.space))/((app-name))
+      access_key_id: ((s3-connection.access_key))
+      secret_access_key: ((s3-connection.secret_key))
+      options:
+      - "--endpoint-url=((s3-connection.endpoint))"
+      - "--exclude '*'"
+      - "--include 'reports/*'"
+
+jobs:
+  - name: build-and-publish
+    plan:
+      - get: version
+      - get: app-repo
+        trigger: true
+      - put: app-docker-image
+        params:
+          tag_file: version/docker
+          build: app-repo/src
+          build_args:
+            ARG_SOLERA_SONARQUBE_URL: ((sonarqube.sonarQubeUrl))
+            ARG_SOLERA_SONARQUBE_APIKEY: ((sonarqube.apiKey))
+            ARG_SONAR_PROJECT_KEY: ((app-name))
+            ARG_SOLERA_PROGET_URL: https://((pro-get-uri))
+            ARG_SOLERA_PROGET_APIKEY: ((proget-api-key))
+            ARG_SOLERA_PROGET_USERNAME: ((proget-user))
+            ARG_SOLERA_PROGET_PASSWORD: ((proget-password))
+            ARG_JUNIT_REPORT_FILE_PATH: test-report.xml
+    on_failure:
+      put: teams-alert 
+      params:
+        textFile: version/number
+        text: |
+          Failed to build $TEXT_FILE_CONTENT on PCF-((pcf-dev-environment.space))
+        title: $BUILD_PIPELINE_NAME
+        color: FF0000
+        actionName: ($BUILD_JOB_NAME - $BUILD_NAME)
+        actionTarget: $ATC_EXTERNAL_URL/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME
+
+  - name: deploy-to-dev
+    plan:
+      - get: version
+        trigger: true
+        passed: [build-and-publish]
+      - task: create-deploy-params
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: ((pro-get-uri))/docker/library/busybox
+              tag: latest
+              username: ((proget-user))
+              password: ((proget-password))
+          inputs:
+            - name: version
+          run:
+            path: sh
+            args: 
+              - -exc
+              - |- 
+                cat version/docker | xargs -I {} -n 1 echo 'docker_image: ((pro-get-uri))/docker/smr/identifix/((app-name)):{}' > cf_command/params.yml 
+                cat >> cf_command/params.yml <<EOF
+                command: push
+                app_name: ((app-name))-dev-green
+                instances: 1
+                memory: ((app-mem))
+                docker_username: ((proget-user))
+                docker_password: "$(echo '((proget-password))')"
+                services: [ ((rewards-mq.service_name)) ]
+                environment_variables:
+                  ASPNETCORE_ENVIRONMENT: Development
+                  ConnectionStrings__GitHub: ((github-search-api-dev.github-config))                 
+                EOF
+          outputs:
+            - name: cf_command
+      - put: run-container-image
+        inputs:
+          - cf_command
+        resource: cf-dev
+        params:
+          command: push
+          command_file: cf_command/params.yml
+      - put: cf-bind-service
+        resource: cf-dev
+        params:
+          commands:
+            - command: bind-service
+              app_name: ((app-name))-dev-green
+              service_instance: rewards-profile-mysql
+              space: ((pcf-dev-environment.space))
+            - command: bind-service
+              app_name: ((app-name))-dev-green
+              service_instance: ((rewards-mq.service_name))
+              space: ((pcf-dev-environment.space))
+    on_success:
+      put: teams-alert
+      params:
+        textFile: version/number
+        text: |
+          Successfully deployed $TEXT_FILE_CONTENT to PCF-((pcf-dev-environment.space)) with no errors
+        title: $BUILD_PIPELINE_NAME
+        color: 00FF00
+        actionName: ($BUILD_JOB_NAME - $BUILD_NAME)
+        actionTarget: $ATC_EXTERNAL_URL/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME
+    on_failure:
+      put: teams-alert 
+      params:
+        textFile: version/number
+        text: |
+          Failed to deploy $TEXT_FILE_CONTENT to PCF-((pcf-dev-environment.space))
+        title: $BUILD_PIPELINE_NAME
+        color: FF0000
+        actionName: ($BUILD_JOB_NAME - $BUILD_NAME)
+        actionTarget: $ATC_EXTERNAL_URL/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME
+
+  - name: blue-green-switch-dev
+    plan:
+      - get: app-repo
+      - get: version
+        trigger: true
+        passed: [deploy-to-dev]
+      - task: blue-green-deploy
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: ((pro-get-uri))/docker/library/ubuntu
+              tag: latest
+              username: ((proget-user))
+              password: ((proget-password))
+          inputs:
+            - name: version
+          run:
+            path: sh
+            args: 
+              - -exc
+              - |-
+                apt-get update
+                apt-get install wget -y
+                apt-get install gnupg2 -y
+
+                wget -q -O - https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | apt-key add -
+                echo "deb https://packages.cloudfoundry.org/debian stable main" | tee /etc/apt/sources.list.d/cloudfoundry-cli.list
+                apt-get update
+                apt-get install cf-cli
+                cf install-plugin -r CF-Community "blue-green-deploy" -f
+                cf_app_name=((app-name))-dev
+                cf_app_name_green=$cf_app_name-green
+
+                cf login -a ((pcf-dev-environment.api)) -u ((cf-preprd-username)) -p "((cf-preprd-password))" -o ((pcf-dev-environment.organization)) -s ((pcf-dev-environment.space))
+
+                greenApps=$(cf apps | grep $cf_app_name_green | { grep -v grep || true; })
+                if [ -z "$greenApps" ]; then
+                  exit 0;
+                fi
+                
+                cf map-route $cf_app_name_green ((pcf-dev-environment.app_domain)) --hostname $cf_app_name
+                cf unmap-route $cf_app_name_green ((pcf-dev-environment.app_domain)) --hostname $cf_app_name_green
+                cf delete-route ((pcf-dev-environment.app_domain)) --hostname $cf_app_name_green -f
+
+                currentApps=$(cf apps | grep "$cf_app_name " | { grep -v grep || true; })
+                if [ ! -z "$currentApps" ]; then
+                  cf unmap-route $cf_app_name ((pcf-dev-environment.app_domain)) --hostname $cf_app_name
+                  cf stop $cf_app_name
+                  cf delete $cf_app_name -f
+                fi
+                
+                cf rename $cf_app_name_green $cf_app_name
+    on_success:
+      put: teams-alert
+      params:
+        textFile: version/number
+        text: |
+          Successfully updated route for new app $TEXT_FILE_CONTENT in PCF-((pcf-dev-environment.space)) with no errors
+        title: $BUILD_PIPELINE_NAME
+        color: 00FF00
+        actionName: ($BUILD_JOB_NAME - $BUILD_NAME)
+        actionTarget: $ATC_EXTERNAL_URL/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME
+    on_failure:
+      put: teams-alert 
+      params:
+        textFile: version/number
+        text: |
+          Failed to update route for $TEXT_FILE_CONTENT in PCF-((pcf-dev-environment.space))
+        title: $BUILD_PIPELINE_NAME
+        color: FF0000
+        actionName: ($BUILD_JOB_NAME - $BUILD_NAME)
+        actionTarget: $ATC_EXTERNAL_URL/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME
+
+  - name: run-newman-tests-dev
+    plan:
+    - get: app-repo
+    - get: version
+      trigger: true
+      passed: [blue-green-switch-dev]
+    - task: run-tests
+      config:
+         platform: linux
+         image_resource:
+           type: docker-image
+           source:
+             repository: ((pro-get-uri))/docker/postman/newman_ubuntu1404
+             tag: latest
+             username: ((proget-user))
+             password: ((proget-password))
+         inputs:
+           - name: app-repo
+         outputs:
+           - name: reports
+         run:
+            path: sh
+            args: [ "app-repo/ci/run-newman-tests.sh" ]
+      params:
+        PWS_APP_NAME: ((app-name))
+        PWS_APP_SUFFIX: dev # dev, stage, prod
+        PWS_PATH_TO_TESTS: app-repo/IntegrationTests
+        # PWS_TEST_FOLDER: # Optional Postman collection folder (Only pass param if set)
+      on_success:
+        do:
+          - put: reports
+          - put: teams-alert
+            params:
+              textFile: version/version
+              color: ((teams-channels.font-color-pass))
+              title: ((pcf-dev-environment.space)) - ((app-name)) Newman Tests
+              text: |
+                Newman tests passed for version $TEXT_FILE_CONTENT
+              actionName: View this job ($BUILD_JOB_NAME - $BUILD_NAME)
+              actionTarget: ((teams-channels.concourse-action-target-url))
+      on_failure:
+        do:
+          - put: reports
+          - put: teams-alert
+            params:
+              textFile: version/version
+              color: ((teams-channels.font-color-fail))
+              title: ((pcf-dev-environment.space)) - ((app-name)) Newman Tests
+              text: |
+                Newman tests **FAILED** for version $TEXT_FILE_CONTENT
+              actionName: View this job ($BUILD_JOB_NAME - $BUILD_NAME)
+              actionTarget: ((teams-channels.concourse-action-target-url))
+
+groups:
+- name: main
+  jobs:
+  - build-and-publish
+  - deploy-to-dev
+  - blue-green-switch-dev
+  - run-newman-tests-dev
+

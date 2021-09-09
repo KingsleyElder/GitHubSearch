@@ -1,0 +1,6 @@
+# fly -t pcfprod set-pipeline --pipeline github-search-api --config pipeline-prod.yml --load-vars-from vars-prod.yml
+app-name: github-search-api
+repo-uri: git@bitbucket.org:SoleraNA/github-search-api.git
+repo-branch: version-production
+pro-get-uri: feeds.axadmin.net
+app-mem: 512M
