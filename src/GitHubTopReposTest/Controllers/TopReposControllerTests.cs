@@ -36,7 +36,7 @@ namespace GitHubTopRepos.Test.Controllers
         {
             // Arrange
             var selectedLanguage = new GitHubInput() { Language = "C#" };
-            _gitHubRepository.Setup(r => r.GetTopRepos(It.IsAny<int>(), It.IsAny<GitHubInput>())).Returns(Task.FromResult(new GitHubRepoSearchResult
+            _gitHubRepository.Setup(r => r.GetTopRepos(It.IsAny<int>(), It.IsAny<string>())).Returns(Task.FromResult(new GitHubRepoSearchResult
             {
                 IncompleteResults = true,
                 TotalCount = 0,
@@ -56,7 +56,7 @@ namespace GitHubTopRepos.Test.Controllers
         {
             // Arrange
             var selectedLanguage = new GitHubInput() { Language = "C#" };
-            _gitHubRepository.Setup(r => r.GetTopRepos(It.IsAny<int>(), It.IsAny<GitHubInput>())).Returns(Task.FromResult(new GitHubRepoSearchResult
+            _gitHubRepository.Setup(r => r.GetTopRepos(It.IsAny<int>(), It.IsAny<string>())).Returns(Task.FromResult(new GitHubRepoSearchResult
             {
                 IncompleteResults = true,
                 TotalCount = 3027156,
@@ -88,7 +88,7 @@ namespace GitHubTopRepos.Test.Controllers
             var selectedLanguage = new GitHubInput() { Language = "C#" };
             var expectedLog = "TopReposController Get() threw an exception";
             var exceptionMessage = "Object reference not set to an instance of an object.";
-            _gitHubRepository.Setup(r => r.GetTopRepos(It.IsAny<int>(), It.IsAny<GitHubInput>())).Returns(Task.FromResult(new GitHubRepoSearchResult
+            _gitHubRepository.Setup(r => r.GetTopRepos(It.IsAny<int>(), It.IsAny<string>())).Returns(Task.FromResult(new GitHubRepoSearchResult
             {
                 IncompleteResults = true,
                 TotalCount = 1,

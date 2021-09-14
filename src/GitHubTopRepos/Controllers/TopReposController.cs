@@ -10,9 +10,7 @@ using System.Threading.Tasks;
 
 namespace GitHubTopRepos.Controllers
 {
-    [Route("api/[controller]")]
     [ApiController]
-    //[Produces("application/json")]
     public class TopReposController : ControllerBase
     {
         private readonly IGitHubRepository _gitHubRepository;
@@ -34,9 +32,9 @@ namespace GitHubTopRepos.Controllers
         /// Returns the top repositories based on Star Gazers count
         /// </summary>
         /// <returns></returns>
-        //[Route("api/TopRepos/{language:string}")]
+        [Route("api/TopRepos/")]
         [HttpGet]
-        public async Task<IActionResult> Get(GitHubInput language)
+        public async Task<IActionResult> Get([FromQuery] GitHubInput input)
         {
             try
             {
@@ -45,7 +43,7 @@ namespace GitHubTopRepos.Controllers
                     return BadRequest();
                 }
 
-                var repoData = await _gitHubRepository.GetTopRepos(TopRepoCount, language);
+                var repoData = await _gitHubRepository.GetTopRepos(TopRepoCount, input.Language);
                 if (repoData.TotalCount == 0)
                 {
                     return NotFound();
@@ -66,8 +64,6 @@ namespace GitHubTopRepos.Controllers
                     });
                 }
 
-                _logger.LogInformation("Insert request history here");
-
                 return Ok(returnSet);
             }
             catch (Exception exc)
@@ -79,18 +75,17 @@ namespace GitHubTopRepos.Controllers
 
         [Route("api/TopRepos/Languages")]
         [HttpGet]
-        public async Task<IActionResult> GetGitHubLanguages()
+        public async Task<IActionResult> GetGitHubLanguages(bool popularOnly = false)
         {
             try
             {
-                var repoData = await _requestTrackingRepository.GetLanguages();
+                var repoData = await _requestTrackingRepository.GetLanguages(popularOnly);
                 if (repoData == null)
                 {
                     return NotFound();
                 }
-                var returnSet = new List<GitHubInput>();
 
-                return Ok(returnSet);
+                return Ok(repoData);
             }
             catch (Exception exc)
             {
@@ -110,13 +105,12 @@ namespace GitHubTopRepos.Controllers
                 {
                     return NotFound();
                 }
-                var returnSet = new List<GitHubInput>();
 
-                return Ok(returnSet);
+                return Ok(repoData);
             }
             catch (Exception exc)
             {
-                _logger.LogError(exc, "TopReposController GetGitHubLanguages() threw an exception");
+                _logger.LogError(exc, "TopReposController GetRecentRequests() threw an exception");
                 return new StatusCodeResult(StatusCodes.Status503ServiceUnavailable);
             }
         }

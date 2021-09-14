@@ -29,15 +29,14 @@ namespace GitHubTopRepos
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddScoped<IRequestTrackingRepository, RequestTrackingRepository>();
-            services.AddScoped<IGitHubRepository, GitHubRepository>();
-
             var mySqlConnectionStr = Configuration.GetConnectionString("RequestTracking");
-            services.AddDbContextPool<IRequestTrackingContext, RequestTrackingContext>(builder =>
+            services.AddDbContext<IRequestTrackingContext, RequestTrackingContext>(builder =>
             {
                 builder.UseMySql(mySqlConnectionStr, ServerVersion.AutoDetect(mySqlConnectionStr));
             });
-
+            services.AddScoped<IRequestTrackingRepository, RequestTrackingRepository>();
+            services.AddScoped<IGitHubRepository, GitHubRepository>();
+            
             var executionPolicyOptionConfiguration = Configuration.GetSection("ExecutionPolicyOptions");
             var executionPolicyOptions = new ExecutionPolicyOptions();
             executionPolicyOptionConfiguration.Bind(executionPolicyOptions);

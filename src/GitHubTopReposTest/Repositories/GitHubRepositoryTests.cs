@@ -1,4 +1,5 @@
 using GitHubTopRepos.Configuration;
+using GitHubTopRepos.Data.Entities;
 using GitHubTopRepos.Models;
 using GitHubTopRepos.Repositories;
 using Microsoft.Extensions.Logging;
@@ -18,12 +19,14 @@ namespace GitHubTopRepos.Test.Repositories
     {
         private Mock<IHttpClientFactory> _httpClientFactory;
         private OptionsWrapper<GitHubOptions> _gitHubOptions;
+        private readonly Mock<IRequestTrackingRepository> _requestTrackingRepository;
         private readonly Mock<ILogger<GitHubRepository>> _logger;
         private string _apiUrl = "https://api.github.com";
 
         public GitHubRepositoryTests()
         {
             _logger = new Mock<ILogger<GitHubRepository>>();
+            _requestTrackingRepository = new Mock<IRequestTrackingRepository>();
         }
 
         private void Setup()
@@ -43,7 +46,7 @@ namespace GitHubTopRepos.Test.Repositories
         public async Task GetTopRepos_InvalidToken_NonNullResultAndLogging()
         {
             // Arrange
-            var language = new GitHubInput() { Language = "C++" };
+            var input = new GitHubInput() { Language = "C++" };
             var responseJson = "{\"message\": \"Bad credentials\",\"documentation_url\": \"https://docs.github.com/rest\"}";
             var expectedLog = "Failed to return results calling GetTopRepos() having json response: " + responseJson;
             var exceptionMessage = "Response status code does not indicate success: 401 (Unauthorized).";
@@ -60,9 +63,11 @@ namespace GitHubTopRepos.Test.Repositories
             var client = new HttpClient(mockHttpMessageHandler.Object);
             _httpClientFactory.Setup(_ => _.CreateClient("GitHub")).Returns(client);
 
+            _requestTrackingRepository.Setup(c => c.InsertRequest(It.IsAny<RequestLog>()));
+
             // Act
-            var repository = new GitHubRepository(_httpClientFactory.Object, _gitHubOptions, _logger.Object);
-            var result = await repository.GetTopRepos(5, language);
+            var repository = new GitHubRepository(_httpClientFactory.Object, _gitHubOptions, _requestTrackingRepository.Object, _logger.Object);
+            var result = await repository.GetTopRepos(5, input.Language);
 
             // Assert
             Assert.NotNull(result);
@@ -78,7 +83,7 @@ namespace GitHubTopRepos.Test.Repositories
         public async Task GetTopRepos_BadSettingsUrlThrowsException_EmptyReturnSet()
         {
             // Arrange
-            var language = new GitHubInput() { Language = "C++" };
+            var input = new GitHubInput() { Language = "C++" };
             var expectedLog = "Failed to return results calling GetTopRepos() having json response: ";
             var exceptionMessage = "Only 'http' and 'https' schemes are allowed. (Parameter 'requestUri')";
             _apiUrl = "XXXhttps://api.github.com/search/butter";
@@ -97,8 +102,8 @@ namespace GitHubTopRepos.Test.Repositories
             var client = new HttpClient(mockHttpMessageHandler.Object);
             _httpClientFactory.Setup(_ => _.CreateClient("GitHub")).Returns(client);
 
-            var repository = new GitHubRepository(_httpClientFactory.Object, _gitHubOptions, _logger.Object);
-            var result = await repository.GetTopRepos(5, language);
+            var repository = new GitHubRepository(_httpClientFactory.Object, _gitHubOptions, _requestTrackingRepository.Object, _logger.Object);
+            var result = await repository.GetTopRepos(5, input.Language);
 
             // Assert
             Assert.NotNull(result);
@@ -116,7 +121,7 @@ namespace GitHubTopRepos.Test.Repositories
         public async Task GetTopRepos_ValidConditions_ReturnsResults()
         {
             // Arrange
-            var language = new GitHubInput() { Language = "C++" };
+            var input = new GitHubInput() { Language = "C++" };
             var expectedTotalCount = 3013541;
             var expectedItemsCount = 5;
             Setup();
@@ -134,8 +139,8 @@ namespace GitHubTopRepos.Test.Repositories
             var client = new HttpClient(mockHttpMessageHandler.Object);
             _httpClientFactory.Setup(_ => _.CreateClient("GitHub")).Returns(client);
 
-            var repository = new GitHubRepository(_httpClientFactory.Object, _gitHubOptions, _logger.Object);
-            var result = await repository.GetTopRepos(5, language);
+            var repository = new GitHubRepository(_httpClientFactory.Object, _gitHubOptions, _requestTrackingRepository.Object, _logger.Object);
+            var result = await repository.GetTopRepos(5, input.Language);
 
             // Assert
             Assert.NotNull(result);

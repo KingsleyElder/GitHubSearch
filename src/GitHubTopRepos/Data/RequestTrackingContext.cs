@@ -51,7 +51,7 @@ namespace GitHubTopRepos.Data.Entities
                 {
                     command.Parameters.AddRange(parameters.ToArray());
                 }
-                using (var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow))
+                using (var reader = await command.ExecuteReaderAsync(CommandBehavior.Default))
                 {
                     var result = await reader.ReadAsync() ? function(reader) : default;
                     return result;
@@ -59,6 +59,9 @@ namespace GitHubTopRepos.Data.Entities
             }
         }
 
+
+
+        public DbSet<Language> Languages { get; set; }
         public DbSet<RequestLog> RequestLogs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
